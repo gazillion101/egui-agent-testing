@@ -8,7 +8,7 @@ one button. A small, working version of the approach behind the
 It is a notes app with a menu, a text field, a list and a settings panel. The
 interesting part is not the app but the two things around it:
 
-- **`src/driver.rs`** (about 250 lines): an egui plugin that reads egui's
+- **`src/driver.rs`** (about 300 lines): an egui plugin that reads egui's
   accessibility tree (AccessKit, the counterpart of the DOM) and feeds real
   mouse and keyboard events into egui's input, served over MCP. Four tools:
   `ui_snapshot`, `ui_click`, `ui_type`, `ui_state`.
