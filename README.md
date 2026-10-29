@@ -10,7 +10,7 @@ interesting part is not the app but the two things around it:
 
 - **`src/driver.rs`** (about 300 lines): an egui plugin that reads egui's
   accessibility tree (AccessKit, the counterpart of the DOM) and feeds real
-  mouse and keyboard events into egui's input, served over MCP. Four tools:
+  mouse and keyboard events into egui's input, served over MCP on the desktop and as `window.notesDriver` in the browser (`src/web.rs`). Four tools:
   `ui_snapshot`, `ui_click`, `ui_type`, `ui_state`.
 - **`tests/walk.rs`**: tests built on `egui_kittest` that find controls by
   role and label, and *walkers* that check a property of every control.
@@ -38,6 +38,30 @@ as a novice would. A snapshot looks like this:
 
 An agent needs no coordinates and no image recognition: it says "click
 `Add note`" or "click e20".
+
+### In the browser
+
+The same code builds to WebAssembly. Nothing may block in a page, so there is
+no server: with `?driver` in the URL the page gets `window.notesDriver`.
+
+```
+trunk build --release
+python3 -m http.server 8801 --bind 127.0.0.1 --directory dist
+# open http://127.0.0.1:8801/index.html?driver
+```
+
+```js
+const d = window.notesDriver;
+d.call('ui_snapshot', '{}');                          // the same tree as above
+d.call('ui_click', '{"label":"New note"}');           // queued for the next frames
+await new Promise(r => setTimeout(r, 100));           // let a frame or two run
+d.call('ui_type', '{"text":"buy milk"}');
+```
+
+`ui_snapshot` and `ui_state` answer at once; `ui_click` and `ui_type` queue
+their input, so wait a frame before you look again. Playwright (or any
+browser tool) can drive the page this way. Both the desktop MCP server and
+the page use the same `Driver::plan`, so a call means the same thing in both.
 
 ## The tests
 

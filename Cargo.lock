@@ -852,8 +852,10 @@ dependencies = [
  "eframe",
  "egui",
  "egui_kittest",
+ "js-sys",
  "serde_json",
  "tiny_http",
+ "wasm-bindgen-futures",
 ]
 
 [[package]]

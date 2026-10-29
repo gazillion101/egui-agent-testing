@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use egui_agent_testing::{Notes, driver::Driver};
 
-/// The app plus, with `--driver PORT`, the agent driver.
+/// The app plus, with the driver on, the agent driver.
 struct App {
     notes: Notes,
     driver: Option<Arc<Driver>>,
@@ -17,6 +17,8 @@ impl eframe::App for App {
     }
 }
 
+/// Desktop: `--driver PORT` serves the driver over MCP on that port.
+#[cfg(not(target_arch = "wasm32"))]
 fn main() -> eframe::Result {
     let args: Vec<String> = std::env::args().collect();
     let port: Option<u16> = args
@@ -37,4 +39,36 @@ fn main() -> eframe::Result {
             Ok(Box::new(App { notes: Notes::default(), driver }))
         }),
     )
+}
+
+/// Browser: `?driver` in the URL adds `window.notesDriver`.
+#[cfg(target_arch = "wasm32")]
+fn main() {
+    use eframe::wasm_bindgen::JsCast as _;
+    wasm_bindgen_futures::spawn_local(async {
+        let window = eframe::web_sys::window().expect("a browser window");
+        let driver_on = window.location().search().unwrap_or_default().contains("driver");
+        let canvas = window
+            .document()
+            .expect("a document")
+            .get_element_by_id("the_canvas")
+            .expect("the canvas")
+            .dyn_into::<eframe::web_sys::HtmlCanvasElement>()
+            .expect("a canvas");
+        eframe::WebRunner::new()
+            .start(
+                canvas,
+                eframe::WebOptions::default(),
+                Box::new(move |cc| {
+                    let driver = driver_on.then(|| {
+                        let d = Driver::new(&cc.egui_ctx);
+                        egui_agent_testing::web::expose(d.clone());
+                        d
+                    });
+                    Ok(Box::new(App { notes: Notes::default(), driver }))
+                }),
+            )
+            .await
+            .expect("the app starts");
+    });
 }

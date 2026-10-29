@@ -7,10 +7,13 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex};
+#[cfg(not(target_arch = "wasm32"))]
 use std::time::{Duration, Instant};
 
 use eframe::egui::{self, Event, Modifiers, PointerButton, Pos2, pos2};
-use serde_json::{Value, json};
+use serde_json::Value;
+#[cfg(not(target_arch = "wasm32"))]
+use serde_json::json;
 
 #[derive(Clone, Debug)]
 struct Node {
@@ -35,6 +38,12 @@ struct Inner {
     long: HashMap<u64, u64>,
     frame: u64,
     state: String,
+}
+
+/// What a tool call comes to.
+pub(crate) enum Plan {
+    Answer(String),
+    Input(Vec<Vec<Event>>, String),
 }
 
 pub struct Driver {
@@ -62,7 +71,9 @@ impl Driver {
         f(&mut self.inner.lock().unwrap_or_else(|e| e.into_inner()))
     }
 
-    /// Runs until `n` more frames have been drawn.
+    /// Runs until `n` more frames have been drawn (desktop: the server's
+    /// thread may block; the browser must not, see `web.rs`).
+    #[cfg(not(target_arch = "wasm32"))]
     fn frames(&self, n: u64) {
         let start = self.with(|i| i.frame);
         let t = Instant::now();
@@ -73,14 +84,21 @@ impl Driver {
     }
 
     /// Feeds input, a batch per frame, and waits until the app has settled.
+    #[cfg(not(target_arch = "wasm32"))]
     fn feed(&self, batches: Vec<Vec<Event>>) {
-        self.with(|i| i.queue.extend(batches));
+        self.queue(batches);
         let t = Instant::now();
         while self.with(|i| !i.queue.is_empty()) && t.elapsed() < Duration::from_secs(10) {
             self.ctx.request_repaint();
             std::thread::sleep(Duration::from_millis(8));
         }
         self.frames(2);
+    }
+
+    /// Queues input for the next frames.
+    pub(crate) fn queue(&self, batches: Vec<Vec<Event>>) {
+        self.with(|i| i.queue.extend(batches));
+        self.ctx.request_repaint();
     }
 
     /// The tree as indented text with a ref per widget.
@@ -124,16 +142,13 @@ impl Driver {
         })
     }
 
-    /// One tool call. Errors are returned as text for the agent to read.
-    fn call(&self, name: &str, a: &Value) -> Result<String, String> {
+    /// Turns a tool call into what to do: an answer, or input to feed.
+    /// Shared by the desktop server and the browser's `window.notesDriver`.
+    pub(crate) fn plan(&self, name: &str, a: &Value) -> Result<Plan, String> {
         match name {
-            "ui_snapshot" => {
-                self.frames(1);
-                Ok(self.snapshot())
-            }
-            "ui_state" => Ok(self.with(|i| i.state.clone())),
+            "ui_snapshot" => Ok(Plan::Answer(self.snapshot())),
+            "ui_state" => Ok(Plan::Answer(self.with(|i| i.state.clone()))),
             "ui_click" => {
-                self.frames(1);
                 let p = self.point(a)?;
                 let press = |pressed| Event::PointerButton {
                     pos: p,
@@ -141,19 +156,38 @@ impl Driver {
                     pressed,
                     modifiers: Modifiers::NONE,
                 };
-                self.feed(vec![vec![Event::PointerMoved(p)], vec![press(true)], vec![press(false)]]);
-                Ok(format!("Clicked at ({:.0}, {:.0}).", p.x, p.y))
+                Ok(Plan::Input(
+                    vec![vec![Event::PointerMoved(p)], vec![press(true)], vec![press(false)]],
+                    format!("Clicked at ({:.0}, {:.0}).", p.x, p.y),
+                ))
             }
             "ui_type" => {
                 let t = a["text"].as_str().ok_or("give text")?;
-                self.feed(vec![vec![Event::Text(t.to_string())]]);
-                Ok(format!("Typed {} characters.", t.chars().count()))
+                Ok(Plan::Input(
+                    vec![vec![Event::Text(t.to_string())]],
+                    format!("Typed {} characters.", t.chars().count()),
+                ))
             }
             other => Err(format!("unknown tool {other}")),
         }
     }
 
+    /// One tool call on the desktop. Errors are text for the agent to read.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn call(&self, name: &str, a: &Value) -> Result<String, String> {
+        // The tree must be fresh before a widget is looked up.
+        self.frames(1);
+        match self.plan(name, a)? {
+            Plan::Answer(text) => Ok(text),
+            Plan::Input(batches, text) => {
+                self.feed(batches);
+                Ok(text)
+            }
+        }
+    }
+
     /// The tools, as MCP describes them.
+    #[cfg(not(target_arch = "wasm32"))]
     fn tools() -> Value {
         let target = json!({
             "ref": {"type": "string", "description": "A node from ui_snapshot, e.g. e12"},
@@ -168,6 +202,7 @@ impl Driver {
     }
 
     /// Serves MCP (JSON over HTTP POST) on 127.0.0.1:`port` from a thread.
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn serve(self: &Arc<Self>, port: u16) {
         let me = self.clone();
         let server = tiny_http::Server::http(("127.0.0.1", port)).expect("the driver's port is free");

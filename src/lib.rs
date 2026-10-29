@@ -4,6 +4,8 @@
 //! is what the tests in `tests/` and the agent driver in `driver.rs` rely on.
 
 pub mod driver;
+#[cfg(target_arch = "wasm32")]
+pub mod web;
 
 use eframe::egui;
 
