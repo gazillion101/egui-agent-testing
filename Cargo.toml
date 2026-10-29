@@ -1,0 +1,15 @@
+[package]
+name = "egui-agent-testing"
+version = "0.1.0"
+edition = "2024"
+description = "A small egui app that an AI agent can see and drive, with accessibility-tree tests that walk the whole interface"
+license = "MIT"
+
+[dependencies]
+eframe = "0.35"
+serde_json = "1"
+tiny_http = "0.12"
+
+[dev-dependencies]
+egui = "0.35"
+egui_kittest = { version = "0.35", features = ["eframe"] }
